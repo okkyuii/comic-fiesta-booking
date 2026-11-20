@@ -1,22 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Camera, Calendar, Clock, User, MessageSquare, Phone, Sparkles, CheckCircle2, ChevronRight, Info } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
-
-// --- Firebase Initialization ---
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-    apiKey: "mock-key",
-    authDomain: "mock.firebaseapp.com",
-    projectId: "mock-project",
-    storageBucket: "mock.appspot.com",
-    messagingSenderId: "mock-id",
-    appId: "mock-app-id"
-};
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-booking-app';
 
 // Pre-defined Convention Dates (e.g., typical Comic Fiesta weekend)
 const CONVENTION_DATES = [
@@ -38,9 +21,14 @@ const TIME_SLOTS_BY_DATE = {
 };
 
 export default function BookingApp() {
-    const [user, setUser] = useState(null);
-    const [bookings, setBookings] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [bookings, setBookings] = useState(() => {
+        try {
+            const saved = localStorage.getItem('cf_bookings_2026');
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
+        }
+    });
     
     // Form & Selection State
     const [selectedDate, setSelectedDate] = useState(CONVENTION_DATES[0].date);
@@ -58,52 +46,16 @@ export default function BookingApp() {
     const [errorMsg, setErrorMsg] = useState('');
 
     // --- EMAIL SETUP ---
-    // Replace this URL with your Formspree endpoint pointing to ymadayui@gmail.com
+    // Paste your Formspree endpoint URL below (from your Formspree dashboard)
     const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xkjrzdle';
 
-    // --- 1. Authentication ---
     useEffect(() => {
-        const initAuth = async () => {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (err) {
-                console.error("Auth Error:", err);
-                setErrorMsg("Failed to authenticate. Please refresh.");
-            }
-        };
-        initAuth();
-
-        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-            setUser(currentUser);
-        });
-        return () => unsubscribe();
-    }, []);
-
-    // --- 2. Fetch Bookings ---
-    useEffect(() => {
-        if (!user) return;
-
-        const bookingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'bookings');
-        
-        const unsubscribe = onSnapshot(bookingsRef, (snapshot) => {
-            const fetchedBookings = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-            setBookings(fetchedBookings);
-            setLoading(false);
-        }, (err) => {
-            console.error("Firestore Error:", err);
-            setErrorMsg("Failed to load availability. Please try again later.");
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, [user]);
+        try {
+            localStorage.setItem('cf_bookings_2026', JSON.stringify(bookings));
+        } catch {
+            // Ignore browser storage restrictions
+        }
+    }, [bookings]);
 
     // --- Handlers ---
     const handleInputChange = (e) => {
@@ -113,19 +65,21 @@ export default function BookingApp() {
 
     const handleDateSelect = (date) => {
         setSelectedDate(date);
-        setSelectedTime(null); // Reset time when date changes
+        setSelectedTime(null);
         setSubmitSuccess(false);
+        setErrorMsg('');
     };
 
     const handleTimeSelect = (time) => {
         if (isSlotBooked(selectedDate, time)) return;
         setSelectedTime(time);
         setSubmitSuccess(false);
+        setErrorMsg('');
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!user || !selectedDate || !selectedTime) {
+        if (!selectedDate || !selectedTime) {
             setErrorMsg("Please select a date and time.");
             return;
         }
@@ -135,9 +89,8 @@ export default function BookingApp() {
             return;
         }
 
-        // Double check if it got booked while user was filling the form
-        if (isSlotBooked(selectedDate, selectedTime)) {
-            setErrorMsg("Sorry, this slot was just booked by someone else!");
+        if (isSlotBooked(selectedDate, time)) {
+            setErrorMsg("Sorry, this slot was just booked!");
             setSelectedTime(null);
             return;
         }
@@ -146,46 +99,30 @@ export default function BookingApp() {
         setErrorMsg('');
 
         try {
-            const bookingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'bookings');
-            await addDoc(bookingsRef, {
-                userId: user.uid,
-                date: selectedDate,
-                time: selectedTime,
-                clientName: formData.clientName,
-                character: formData.character,
-                series: formData.series,
-                contact: formData.contact,
-                requests: formData.requests,
-                timestamp: serverTimestamp()
+            const dateLabel = CONVENTION_DATES.find(d => d.date === selectedDate)?.label || selectedDate;
+            const response = await fetch(FORMSPREE_ENDPOINT, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    _subject: `New Booking: ${formData.clientName} - ${dateLabel} @ ${selectedTime}`,
+                    Client_Name: formData.clientName,
+                    Date: dateLabel,
+                    Time_Slot: selectedTime,
+                    Character: formData.character,
+                    Series: formData.series || 'N/A',
+                    Contact_Info: formData.contact,
+                    Special_Requests: formData.requests || 'None'
+                })
             });
 
-            // --- SEND EMAIL NOTIFICATION ---
-            if (FORMSPREE_ENDPOINT !== 'https://formspree.io/f/xkjrzdle') {
-                try {
-                    const dateLabel = CONVENTION_DATES.find(d => d.date === selectedDate)?.label || selectedDate;
-                    await fetch(FORMSPREE_ENDPOINT, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            email_subject: `New Booking: ${formData.clientName} - ${dateLabel} @ ${selectedTime}`,
-                            Client_Name: formData.clientName,
-                            Date: dateLabel,
-                            Time_Slot: selectedTime,
-                            Character: formData.character,
-                            Series: formData.series,
-                            Contact_Info: formData.contact,
-                            Special_Requests: formData.requests || 'None'
-                        })
-                    });
-                } catch (emailErr) {
-                    console.error("Failed to send email notification:", emailErr);
-                    // The booking was still saved to Firebase, so we proceed to success screen.
-                }
+            if (!response.ok) {
+                throw new Error('Formspree submission failed');
             }
 
+            setBookings(prev => [...prev, { date: selectedDate, time: selectedTime }]);
             setSubmitSuccess(true);
             setFormData({
                 clientName: '',
@@ -197,7 +134,7 @@ export default function BookingApp() {
             setSelectedTime(null);
         } catch (err) {
             console.error("Booking failed:", err);
-            setErrorMsg("Failed to secure booking. Please try again.");
+            setErrorMsg("Failed to send booking. Please check your Formspree endpoint URL and try again.");
         } finally {
             setIsSubmitting(false);
         }
@@ -205,18 +142,8 @@ export default function BookingApp() {
 
     // --- Helper ---
     const isSlotBooked = (date, time) => {
-        // Find if any booking matches the date and time
         return bookings.some(b => b.date === date && b.time === time);
     };
-
-    // --- Renderers ---
-    if (loading) {
-        return (
-            <div className="min-h-screen bg-gray-950 flex items-center justify-center text-pink-500">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-pink-500 mb-4"></div>
-            </div>
-        );
-    }
 
     return (
         <div className="min-h-screen bg-gray-950 text-gray-200 font-sans selection:bg-pink-500 selection:text-white pb-20">

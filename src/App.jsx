@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Camera, Calendar, Clock, User, MessageSquare, Phone, Sparkles, CheckCircle2, ChevronRight, Info } from 'lucide-react';
 
-// Pre-defined Convention Dates (e.g., typical Comic Fiesta weekend)
+// Pre-defined Convention Dates
 const CONVENTION_DATES = [
     { id: 'day1', label: 'Day 1 - Saturday', date: '2026-12-19' },
     { id: 'day2', label: 'Day 2 - Sunday', date: '2026-12-20' }
@@ -45,9 +45,9 @@ export default function BookingApp() {
     const [submitSuccess, setSubmitSuccess] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
 
-    // --- EMAIL SETUP ---
-    // Paste your Formspree endpoint URL below (from your Formspree dashboard)
-    const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xkjrzdle';
+    // --- FREE EMAIL SETUP (Web3Forms) ---
+    // Paste your free Access Key from https://web3forms.com/ below
+    const WEB3FORMS_ACCESS_KEY = 'ccbec741-1b24-42e7-909d-2a1f6fc361ab';
 
     useEffect(() => {
         try {
@@ -100,14 +100,16 @@ export default function BookingApp() {
 
         try {
             const dateLabel = CONVENTION_DATES.find(d => d.date === selectedDate)?.label || selectedDate;
-            const response = await fetch(FORMSPREE_ENDPOINT, {
+            const response = await fetch('https://api.web3forms.com/submit', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
                 body: JSON.stringify({
-                    _subject: `New Booking: ${formData.clientName} - ${dateLabel} @ ${selectedTime}`,
+                    access_key: WEB3FORMS_ACCESS_KEY,
+                    subject: `New Booking: ${formData.clientName} - ${dateLabel} @ ${selectedTime}`,
+                    from_name: 'Comic Fiesta 2026 Booking',
                     Client_Name: formData.clientName,
                     Date: dateLabel,
                     Time_Slot: selectedTime,
@@ -118,8 +120,10 @@ export default function BookingApp() {
                 })
             });
 
-            if (!response.ok) {
-                throw new Error('Formspree submission failed');
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'Submission failed');
             }
 
             setBookings(prev => [...prev, { date: selectedDate, time: selectedTime }]);
@@ -134,7 +138,7 @@ export default function BookingApp() {
             setSelectedTime(null);
         } catch (err) {
             console.error("Booking failed:", err);
-            setErrorMsg("Failed to send booking. Please check your Formspree endpoint URL and try again.");
+            setErrorMsg("Failed to send booking. Make sure you pasted your Web3Forms Access Key in App.jsx.");
         } finally {
             setIsSubmitting(false);
         }
@@ -189,8 +193,9 @@ export default function BookingApp() {
                                 {CONVENTION_DATES.map((d) => (
                                     <button
                                         key={d.id}
+                                        type="button"
                                         onClick={() => handleDateSelect(d.date)}
-                                        className={`p-4 rounded-xl border text-left transition-all duration-200 ${
+                                        className={`cursor-pointer p-4 rounded-xl border text-left transition-all duration-200 ${
                                             selectedDate === d.date 
                                             ? 'border-pink-500 bg-pink-500/10 shadow-[0_0_15px_rgba(236,72,153,0.15)]' 
                                             : 'border-gray-700 bg-gray-800 hover:border-gray-500 hover:bg-gray-700'
@@ -226,14 +231,15 @@ export default function BookingApp() {
                                         return (
                                             <button
                                                 key={time}
+                                                type="button"
                                                 disabled={isBooked}
                                                 onClick={() => handleTimeSelect(time)}
                                                 className={`p-3 rounded-lg border flex flex-col items-center justify-center transition-all duration-200
                                                     ${isBooked 
                                                         ? 'opacity-50 cursor-not-allowed border-gray-800 bg-gray-950 text-gray-600' 
                                                         : isSelected 
-                                                            ? 'border-purple-400 bg-purple-500/20 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.2)]'
-                                                            : 'border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-500 hover:bg-gray-700'
+                                                            ? 'cursor-pointer border-purple-400 bg-purple-500/20 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.2)]'
+                                                            : 'cursor-pointer border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-500 hover:bg-gray-700'
                                                     }
                                                 `}
                                             >
@@ -268,8 +274,9 @@ export default function BookingApp() {
                                         Your slot is secured. I will contact you shortly to discuss the shoot concepts.
                                     </p>
                                     <button 
+                                        type="button"
                                         onClick={() => setSubmitSuccess(false)}
-                                        className="text-pink-400 hover:text-pink-300 font-medium underline"
+                                        className="cursor-pointer text-pink-400 hover:text-pink-300 font-medium underline"
                                     >
                                         Book another slot
                                     </button>
@@ -369,13 +376,19 @@ export default function BookingApp() {
                                         </div>
                                     </div>
 
+                                    {errorMsg && (
+                                        <p className="text-red-400 text-sm text-center bg-red-950/50 border border-red-500/40 rounded-lg p-2.5">
+                                            {errorMsg}
+                                        </p>
+                                    )}
+
                                     <button
                                         type="submit"
                                         disabled={!selectedTime || isSubmitting}
                                         className={`w-full mt-4 flex items-center justify-center py-3.5 rounded-xl font-bold text-lg transition-all duration-300
                                             ${(!selectedTime || isSubmitting)
                                                 ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                                                : 'bg-gradient-to-r from-pink-600 to-purple-600 text-white hover:from-pink-500 hover:to-purple-500 shadow-[0_0_20px_rgba(236,72,153,0.3)] hover:shadow-[0_0_25px_rgba(236,72,153,0.5)] scale-100 hover:scale-[1.02]'
+                                                : 'cursor-pointer bg-gradient-to-r from-pink-600 to-purple-600 text-white hover:from-pink-500 hover:to-purple-500 shadow-[0_0_20px_rgba(236,72,153,0.3)] hover:shadow-[0_0_25px_rgba(236,72,153,0.5)] scale-100 hover:scale-[1.02]'
                                             }
                                         `}
                                     >
